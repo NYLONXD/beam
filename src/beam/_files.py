@@ -5,16 +5,13 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
-import sys
-import tarfile
 from pathlib import Path
-
-from ._protocol import MANIFEST_NAME
 
 HASH_CHUNK = 1 << 20
 
 # Things you almost never want to carry between machines: virtualenvs are
-# platform-specific, caches are regenerable, .git is better cloned.
+# platform-specific, caches are regenerable, .git is better cloned, .env
+# usually holds secrets.
 DEFAULT_EXCLUDES = [
     ".git",
     ".hg",
@@ -35,11 +32,7 @@ DEFAULT_EXCLUDES = [
     "node_modules",
     ".DS_Store",
     "Thumbs.db",
-    MANIFEST_NAME,
 ]
-
-# tarfile only learned about extraction filters in 3.12.
-EXTRACT_KW = {"filter": "data"} if sys.version_info >= (3, 12) else {}
 
 
 def human(n: float) -> str:
@@ -48,6 +41,29 @@ def human(n: float) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
     return f"{n:.1f} GB"
+
+
+def normalize_excludes(exclude) -> list[str]:
+    """Turn user-friendly excludes into glob patterns.
+
+    ".mp4", "mp4" and "*.mp4" all skip mp4 files. A bare name like "data" or
+    ".cache" also skips a file or folder with exactly that name.
+    """
+    if exclude is None:
+        return []
+    if isinstance(exclude, (str, os.PathLike)):
+        exclude = [exclude]
+    patterns = []
+    for item in exclude:
+        item = str(item).strip().replace("\\", "/")
+        if not item:
+            continue
+        if any(ch in item for ch in "*?[/"):
+            patterns.append(item)
+        else:
+            patterns.append(item)
+            patterns.append("*." + item.lstrip("."))
+    return patterns
 
 
 def excluded(rel: Path, patterns) -> bool:
@@ -107,31 +123,3 @@ def walk(root: Path, patterns, max_bytes=None):
                 continue
             found.append((abs_path, rel, size))
     return found, skipped
-
-
-def member_is_safe(name: str) -> bool:
-    path = Path(name)
-    return not path.is_absolute() and ".." not in path.parts
-
-
-def safe_extract(tar: tarfile.TarFile, member: tarfile.TarInfo, dest: Path) -> None:
-    if not member_is_safe(member.name):
-        raise ValueError(f"unsafe path in stream: {member.name!r}")
-    if (member.islnk() or member.issym()) and not member_is_safe(member.linkname):
-        raise ValueError(f"unsafe link target in stream: {member.linkname!r}")
-    tar.extract(member, dest, **EXTRACT_KW)
-
-
-class BytesReader:
-    """File-like wrapper so tar.addfile can consume an in-memory manifest."""
-
-    def __init__(self, data: bytes):
-        self.data = data
-        self.pos = 0
-
-    def read(self, n=-1) -> bytes:
-        if n is None or n < 0:
-            n = len(self.data) - self.pos
-        chunk = self.data[self.pos : self.pos + n]
-        self.pos += len(chunk)
-        return chunk

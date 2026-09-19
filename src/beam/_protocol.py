@@ -9,11 +9,10 @@ import struct
 import threading
 import time
 
-PROTOCOL = 1
+PROTOCOL = 2
 DEFAULT_PORT = 8765
 DISCOVERY_PORT = 8766
-MANIFEST_NAME = ".beam-manifest.json"
-MAX_HEADER = 64 * 1024 * 1024
+MAX_HEADER = 1024 * 1024
 
 
 class BeamError(RuntimeError):
@@ -158,5 +157,5 @@ def find_sender(
         sock.close()
     raise BeamError(
         f"no sender with code {code!r} found on this network after {timeout:.0f}s "
-        "(same Wi-Fi? firewall allowing Python? or pass --host IP)"
+        "(same Wi-Fi? firewall allowing Python? or pass host=IP)"
     )

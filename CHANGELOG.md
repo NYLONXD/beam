@@ -1,16 +1,19 @@
 # Changelog
 
-## 0.2.0
-
-- `beam recv CODE` finds the sender on the local network by itself; no IP
-  address is needed. Use `--host IP[:PORT]` to connect directly.
-- New `--wait SEC` option for how long the receiver searches.
-- New `beam.find_sender(code)` library function. `receive_project` takes
-  `host=None` to discover the sender.
-- Fix: sending crashed on Python 3.9–3.11 (the receiver saw an empty stream).
-- Breaking: `beam recv HOST --code CODE` is now `beam recv CODE --host HOST`.
-
 ## 0.1.0
 
-- First release: `beam send` / `beam recv` with excludes, `.beamignore`,
-  SHA-256 verification and streamed gzip transfer.
+First release.
+
+- `beam.send(folder)` zips a project, encrypts it (AES-256-GCM) and uploads it
+  to a free temporary file host. It returns a code that works from anywhere
+  for 3 days with `beam.receive(code)`. The key is part of the code and never
+  reaches the host.
+- `beam.send(folder, lan=True)` sends directly to a laptop on the same network
+  instead. The receiver finds the sender by the code alone.
+- `beam.pack(folder)` only makes the zip.
+- `exclude=[".mp4", ".log"]` leaves file types out. `.venv`, `.git`,
+  `__pycache__`, `node_modules`, `.env` and similar are skipped by default.
+- The zip includes a `start.bat` that creates a virtual environment, installs
+  requirements (read from the project's imports when it has no
+  `requirements.txt`) and runs the project. It handles plain Python,
+  Streamlit, Django, Node and static-HTML projects.
