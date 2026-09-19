@@ -9,8 +9,8 @@ description = "Move a project folder from one laptop to another over the local n
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
-authors = [{ name = "Your Name", email = "you@example.com" }]
-keywords = ["file-transfer", "lan", "sync", "project", "tar"]
+authors = [{ name = "Nylonxd", email = "Himanshujha202005@gmail.com" }]
+keywords = ["file-transfer", "lan", "sync", "project", "tar", "cli", "local-network"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -18,6 +18,14 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
     "Topic :: Communications :: File Sharing",
     "Topic :: System :: Archiving",
 ]
@@ -27,8 +35,10 @@ dependencies = []
 dev = ["pytest>=7", "ruff>=0.4", "build", "twine"]
 
 [project.urls]
-Homepage = "https://github.com/yourname/beam-lan"
-Issues = "https://github.com/yourname/beam-lan/issues"
+Homepage = "https://github.com/NYLONXD/beam"
+Source = "https://github.com/NYLONXD/beam"
+Issues = "https://github.com/NYLONXD/beam/issues"
+Changelog = "https://github.com/NYLONXD/beam/blob/main/CHANGELOG.md"
 
 [project.scripts]
 beam = "beam.cli:main"
@@ -40,7 +50,7 @@ path = "src/beam/__init__.py"
 packages = ["src/beam"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/beam", "tests", "README.md", "LICENSE"]
+include = ["src/beam", "tests", "README.md", "LICENSE", "CHANGELOG.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

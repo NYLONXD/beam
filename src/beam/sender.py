@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import secrets
 import socket
@@ -196,9 +197,10 @@ def send_project(
 def _stream(conn, manifest, files, total, compresslevel, quiet):
     sent = 0
     writer = SocketWriter(conn)
-    with tarfile.open(
-        fileobj=writer, mode="w|gz", compresslevel=compresslevel
-    ) as tar:
+    # tarfile's "w|gz" only accepts compresslevel from 3.12, so gzip ourselves.
+    with gzip.GzipFile(
+        fileobj=writer, mode="wb", compresslevel=compresslevel, mtime=0
+    ) as gz, tarfile.open(fileobj=gz, mode="w|") as tar:
         blob = json.dumps(manifest).encode("utf-8")
         info = tarfile.TarInfo(MANIFEST_NAME)
         info.size = len(blob)
