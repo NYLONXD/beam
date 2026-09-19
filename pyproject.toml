@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "beam-lan"
+dynamic = ["version"]
+description = "Move a project folder from one laptop to another over the local network."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Your Name", email = "you@example.com" }]
+keywords = ["file-transfer", "lan", "sync", "project", "tar"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Communications :: File Sharing",
+    "Topic :: System :: Archiving",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.4", "build", "twine"]
+
+[project.urls]
+Homepage = "https://github.com/yourname/beam-lan"
+Issues = "https://github.com/yourname/beam-lan/issues"
+
+[project.scripts]
+beam = "beam.cli:main"
+
+[tool.hatch.version]
+path = "src/beam/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/beam"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/beam", "tests", "README.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
