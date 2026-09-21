@@ -156,6 +156,9 @@ def find_sender(
     finally:
         sock.close()
     raise BeamError(
-        f"no sender with code {code!r} found on this network after {timeout:.0f}s "
-        "(same Wi-Fi? firewall allowing Python? or pass host=IP)"
+        f"no sender with code {code!r} found on this network after {timeout:.0f}s. "
+        "Both laptops must be on the same local network (Wi-Fi, a cable or a "
+        "phone hotspot - no internet needed) and running beam at the same time. "
+        "Allow Python through the firewall on the sending laptop, or give the "
+        "address it printed: --host IP:PORT"
     )

@@ -36,6 +36,17 @@ from ._protocol import (
 )
 from .packer import pack
 
+# How the other laptop is told to fetch the file. The ``beam`` command sets
+# this to "cli"; the library leaves it alone and prints Python.
+HINT = "python"
+
+
+def _receive_hint(code: str, host: str | None = None) -> str:
+    if HINT == "cli":
+        return f"beam receive {code}" + (f" --host {host}" if host else "")
+    where = f', host="{host}"' if host else ""
+    return f'beam.receive("{code}"{where})'
+
 
 def _say(quiet, *args):
     if not quiet:
@@ -133,7 +144,7 @@ def _send_online(zip_path: Path, workdir: Path, quiet, on_ready) -> str:
 
     _say(quiet, f"\n  code : {code}\n")
     _say(quiet, "  send this code to the other person. They run:\n")
-    _say(quiet, f'      beam.receive("{code}")\n')
+    _say(quiet, f"      {_receive_hint(code)}\n")
     _say(quiet, f"  it works from anywhere for {keeps}. Anyone with the code can")
     _say(quiet, "  download it, so share it only with the person it is for.")
     return code
@@ -185,11 +196,12 @@ def _serve(file_path,code, port, timeout, quiet, on_ready, discoverable,
 
     _say(quiet, f"\n  code : {code}\n")
     _say(quiet, "  on the other laptop run:\n")
+    address = f"{lan_ip()}:{bound_port}"
     if responder is not None:
-        _say(quiet, f'      beam.receive("{code}")\n')
-        _say(quiet, f"  (if it is not found: host=\"{lan_ip()}:{bound_port}\")")
+        _say(quiet, f"      {_receive_hint(code)}\n")
+        _say(quiet, f"  (if it is not found: {_receive_hint(code, address)})")
     else:
-        _say(quiet, f'      beam.receive("{code}", host="{lan_ip()}:{bound_port}")\n')
+        _say(quiet, f"      {_receive_hint(code, address)}\n")
     _say(quiet, "  waiting for the other laptop ...")
 
     try:

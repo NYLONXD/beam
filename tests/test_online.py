@@ -127,3 +127,106 @@ def test_download_404_says_expired(tmp_path, monkeypatch):
     monkeypatch.setattr(_cloud.urllib.request, "urlopen", fail)
     with pytest.raises(BeamError, match="expired"):
         _cloud.download("t", "abc", tmp_path / "x")
+
+
+# --- the host chain ----------------------------------------------------------
+
+
+class FakeHost(_cloud._Host):
+    """A host that can be told to be up, down, or small."""
+
+    def __init__(self, letter, max_bytes=10**9, up=True):
+        self.letter, self.label = letter, f"host-{letter}"
+        self.max_bytes, self.keeps = max_bytes, "a while"
+        self.up = up
+        self.uploads = []
+
+    def upload(self, source, progress=None):
+        self.uploads.append(source)
+        if not self.up:
+            raise BeamError("down")
+        return "id" + self.letter
+
+    def download_request(self, file_id):
+        return _cloud.urllib.request.Request(f"https://{self.label}/{file_id}.bin")
+
+
+@pytest.fixture
+def blob(tmp_path):
+    path = tmp_path / "upload.bin"
+    path.write_bytes(os.urandom(2048))
+    return path
+
+
+def test_upload_moves_on_when_a_host_is_down(blob, monkeypatch):
+    dead, alive = FakeHost("d", up=False), FakeHost("a")
+    monkeypatch.setattr(_cloud, "HOSTS", [dead, alive])
+
+    letter, file_id, keeps = _cloud.upload(blob)
+    assert (letter, file_id, keeps) == ("a", "ida", "a while")
+    assert len(dead.uploads) == 1 and len(alive.uploads) == 1
+
+
+def test_a_host_too_small_is_skipped_without_uploading(blob, monkeypatch):
+    small, big = FakeHost("s", max_bytes=100), FakeHost("b")
+    monkeypatch.setattr(_cloud, "HOSTS", [small, big])
+
+    assert _cloud.upload(blob)[0] == "b"
+    assert small.uploads == []  # not one wasted byte
+
+
+def test_big_uploads_poke_the_host_before_committing(blob, monkeypatch):
+    dead, alive = FakeHost("d", up=False), FakeHost("a")
+    monkeypatch.setattr(_cloud, "HOSTS", [dead, alive])
+    monkeypatch.setattr(_cloud, "PROBE_ABOVE", 100)  # our 2 KB blob counts as big
+
+    assert _cloud.upload(blob)[0] == "a"
+    # the dead host got the few probe bytes, never the file itself
+    assert dead.uploads == [_cloud.PROBE_BYTES]
+    assert alive.uploads == [_cloud.PROBE_BYTES, blob]
+
+
+def test_every_host_failing_says_why(blob, monkeypatch):
+    monkeypatch.setattr(
+        _cloud, "HOSTS", [FakeHost("d", up=False), FakeHost("s", max_bytes=1)]
+    )
+    with pytest.raises(BeamError, match="upload failed on every host"):
+        _cloud.upload(blob)
+
+
+def test_every_host_has_its_own_letter():
+    letters = [host.letter for host in _cloud.HOSTS]
+    assert len(letters) == len(set(letters))
+    assert set(_cloud.BY_LETTER) == set(letters)
+
+
+@pytest.mark.parametrize(
+    "url, host_index, expected",
+    [
+        ("https://x0.at/ab3f.bin", 0, "ab3f"),
+        ("https://files.catbox.moe/qcqm9r.bin", 1, "qcqm9r"),
+    ],
+)
+def test_reply_urls_become_ids_and_back(url, host_index, expected, monkeypatch):
+    host = _cloud.HOSTS[host_index]
+    monkeypatch.setattr(_cloud, "_post", lambda *a, **k: url + "\n")
+    file_id = host.upload("ignored")
+    assert file_id == expected
+    assert host.download_request(file_id).full_url == url
+
+
+@pytest.mark.parametrize("junk", ["<html>down for maintenance</html>", "", "https://x"])
+def test_a_junk_reply_is_an_error_not_a_bad_code(junk, monkeypatch):
+    monkeypatch.setattr(_cloud, "_post", lambda *a, **k: junk)
+    for host in _cloud.HOSTS:
+        with pytest.raises(BeamError, match="unexpected reply"):
+            host.upload("ignored")
+
+
+def test_a_bytes_blob_uploads_like_a_file():
+    body = _cloud._MultipartBody("file", b"hello", fields={"reqtype": "fileupload"})
+    chunks = iter(lambda: body.read(1 << 16), b"")
+    whole = b"".join(chunks)
+    assert len(whole) == body.length
+    assert b'name="reqtype"' in whole and b"fileupload" in whole
+    assert whole.endswith(b"--\r\n") and b"hello" in whole
