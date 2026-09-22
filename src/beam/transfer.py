@@ -329,6 +329,9 @@ def _receive_online(code, out_dir: Path, overwrite, quiet) -> Path:
         _say(quiet, "")
         _say(quiet, "  decrypting ...")
         meta = decrypt_file(encrypted, plain, secret)
+        # Only now, with the tag verified, is it safe to let the host drop it:
+        # a half-finished download must never destroy the only copy.
+        _cloud.finished(letter, file_id)
 
         name = Path(str(meta.get("name", "")).replace("\\", "/")).name or "received"
         target = out_dir / name

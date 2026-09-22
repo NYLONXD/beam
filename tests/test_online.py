@@ -200,15 +200,20 @@ def test_every_host_has_its_own_letter():
     assert set(_cloud.BY_LETTER) == set(letters)
 
 
+def public_hosts():
+    """The shared free hosts: everything but a relay of your own."""
+    return [h for h in _cloud.HOSTS if not isinstance(h, _cloud.BeamRelay)]
+
+
 @pytest.mark.parametrize(
-    "url, host_index, expected",
+    "url, letter, expected",
     [
-        ("https://x0.at/ab3f.bin", 0, "ab3f"),
-        ("https://files.catbox.moe/qcqm9r.bin", 1, "qcqm9r"),
+        ("https://x0.at/ab3f.bin", "x", "ab3f"),
+        ("https://files.catbox.moe/qcqm9r.bin", "c", "qcqm9r"),
     ],
 )
-def test_reply_urls_become_ids_and_back(url, host_index, expected, monkeypatch):
-    host = _cloud.HOSTS[host_index]
+def test_reply_urls_become_ids_and_back(url, letter, expected, monkeypatch):
+    host = _cloud.BY_LETTER[letter]
     monkeypatch.setattr(_cloud, "_post", lambda *a, **k: url + "\n")
     file_id = host.upload("ignored")
     assert file_id == expected
@@ -218,9 +223,13 @@ def test_reply_urls_become_ids_and_back(url, host_index, expected, monkeypatch):
 @pytest.mark.parametrize("junk", ["<html>down for maintenance</html>", "", "https://x"])
 def test_a_junk_reply_is_an_error_not_a_bad_code(junk, monkeypatch):
     monkeypatch.setattr(_cloud, "_post", lambda *a, **k: junk)
-    for host in _cloud.HOSTS:
+    for host in public_hosts():
         with pytest.raises(BeamError, match="unexpected reply"):
             host.upload("ignored")
+
+
+def test_your_own_relay_is_asked_before_the_shared_hosts():
+    assert isinstance(_cloud.HOSTS[0], _cloud.BeamRelay)
 
 
 def test_a_bytes_blob_uploads_like_a_file():

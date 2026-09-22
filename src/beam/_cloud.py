@@ -29,12 +29,18 @@ BLOCK = 1 << 16
 PROBE_ABOVE = 8 * 1024**2
 PROBE_BYTES = b"beam health check\n"
 
+#: Points beam at a relay you deployed yourself; see relay/ in the repository.
+RELAY_ENV = "BEAM_RELAY"
+
 
 class _Host:
     letter = ""
     label = ""
     max_bytes = 0
     keeps = ""
+    #: False for a host that needs setting up first, such as a relay with no
+    #: URL yet. Unconfigured hosts are passed over as if they were not listed.
+    configured = True
 
     def upload(self, source, progress=None) -> str:
         """Upload a file path or a bytes blob; return the host's id for it."""
@@ -50,6 +56,99 @@ class _Host:
         except (OSError, BeamError):
             return False
         return True
+
+    def after_download(self, file_id) -> None:
+        """The file arrived intact. Hosts that can delete it now, do."""
+
+
+class BeamRelay(_Host):
+    """A relay you deployed yourself. See ``relay/`` in the repository.
+
+    Unlike the public hosts this one is yours: it holds the zip for hours
+    rather than weeks, and deletes it the moment the other laptop confirms it
+    arrived intact, rather than waiting for the clock. It is skipped entirely
+    until ``DEFAULT_URL`` is filled in or ``BEAM_RELAY`` is set, so a plain
+    install behaves exactly as it did before.
+    """
+
+    letter, label = "w", "your relay"
+    max_bytes, keeps = 10 * 1024**2, "a few hours"
+
+    #: Paste your deployed Worker's URL here to bake it into your own build.
+    #: The BEAM_RELAY environment variable overrides it.
+    DEFAULT_URL = ""
+
+    @property
+    def base(self) -> str:
+        return (os.environ.get(RELAY_ENV) or self.DEFAULT_URL).strip().rstrip("/")
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.base)
+
+    def alive(self) -> bool:
+        # A relay has a health endpoint, so unlike the public hosts it can be
+        # asked without leaving a stray upload behind.
+        if not self.configured:
+            return False
+        try:
+            with urllib.request.urlopen(self._ask(f"{self.base}/v1/health"),
+                                        timeout=15) as resp:
+                return resp.status == 200
+        except OSError:
+            return False
+
+    def _ask(self, url, data=None, method="GET") -> urllib.request.Request:
+        return urllib.request.Request(
+            url, data=data, method=method, headers={"User-Agent": USER_AGENT}
+        )
+
+    def upload(self, source, progress=None):
+        if not self.configured:
+            raise BeamError("no relay configured")
+        body, size = _stream(source, progress)
+        request = urllib.request.Request(
+            f"{self.base}/v1/up",
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(size),
+                "User-Agent": USER_AGENT,
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=300) as resp:
+                reply = json.loads(resp.read(1 << 16).decode("utf-8", "replace"))
+        except urllib.error.HTTPError as exc:
+            raise BeamError(f"{self.label} refused it: {_said(exc)}") from None
+        except ValueError:
+            raise BeamError(f"{self.label} gave an unexpected reply") from None
+        finally:
+            body.close()
+
+        file_id = str(reply.get("id", ""))
+        if not file_id.isalnum():
+            raise BeamError(f"{self.label} gave an unexpected reply: {reply!r}")
+        # The relay decides its own retention, so let it tell us what to print.
+        self.keeps = str(reply.get("keeps") or type(self).keeps)
+        return file_id
+
+    def download_request(self, file_id):
+        if not self.configured:
+            raise BeamError(
+                "this code came from a beam relay, but no relay is set here. "
+                f"Set {RELAY_ENV} to its URL and try again."
+            )
+        return self._ask(f"{self.base}/v1/{file_id}")
+
+    def after_download(self, file_id):
+        """Burn it now that the receiver has it, rather than waiting for TTL."""
+        if not self.configured:
+            return
+        request = self._ask(f"{self.base}/v1/{file_id}/done", data=b"", method="POST")
+        with urllib.request.urlopen(request, timeout=30):
+            pass
 
 
 class X0(_Host):
@@ -126,9 +225,10 @@ class TempSh(_Host):
         )
 
 
-# Small zips go to whichever host keeps them longest; anything over 225 MB only
-# temp.sh will hold, so it sits at the end as the big-file fallback.
-HOSTS = [X0(), Catbox(), Uguu(), TempSh()]
+# Your own relay first when there is one, because it is the only host here
+# that answers to you. Then whichever public host keeps a small zip longest;
+# anything over 225 MB only temp.sh will hold, so it is the big-file fallback.
+HOSTS = [BeamRelay(), X0(), Catbox(), Uguu(), TempSh()]
 BY_LETTER = {host.letter: host for host in HOSTS}
 
 
@@ -138,6 +238,43 @@ def _tail_id(url: str, prefix: str, label: str) -> str:
     if not url.startswith(prefix) or not name.endswith(".bin") or "/" in name:
         raise BeamError(f"{label} gave an unexpected reply: {url[:100]!r}")
     return name[: -len(".bin")]
+
+
+def _said(exc: urllib.error.HTTPError) -> str:
+    """The message a relay put in its JSON error body, or the bare status."""
+    try:
+        body = exc.read(4096).decode("utf-8", "replace")
+        return str(json.loads(body).get("error") or body)[:200]
+    except (ValueError, OSError, AttributeError):
+        return f"HTTP {exc.code}"
+
+
+def _stream(source, progress=None):
+    """A readable body for urllib and its length, from a path or a blob."""
+    if isinstance(source, (bytes, bytearray)):
+        return _BytesReader(bytes(source)), len(source)
+    return _ProgressFile(source, progress), os.path.getsize(source)
+
+
+class _ProgressFile:
+    """A file for urllib to stream, reporting how far it has got."""
+
+    def __init__(self, path, progress=None):
+        self.fh = open(path, "rb")
+        self.size = os.path.getsize(path)
+        self.sent = 0
+        self.progress = progress
+
+    def read(self, n=-1):
+        data = self.fh.read(BLOCK if n is None or n < 0 else n)
+        if data:
+            self.sent += len(data)
+            if self.progress:
+                self.progress(self.sent, self.size)
+        return data
+
+    def close(self):
+        self.fh.close()
 
 
 class _BytesReader:
@@ -230,6 +367,8 @@ def upload(path, progress=None, say=None) -> tuple[str, str, str]:
     probe_first = size > PROBE_ABOVE
     errors = []
     for host in HOSTS:
+        if not host.configured:  # a relay nobody has pointed anywhere yet
+            continue
         if size > host.max_bytes:
             errors.append(f"{host.label}: over its {host.max_bytes // 1024**2} MB cap")
             continue
@@ -247,6 +386,21 @@ def upload(path, progress=None, say=None) -> tuple[str, str, str]:
             if say:
                 say(f"\n  {host.label} failed ({exc}), trying the next one")
     raise BeamError("upload failed on every host:\n    " + "\n    ".join(errors))
+
+
+def finished(letter, file_id) -> None:
+    """Say the file arrived intact, so a host that can delete it now does.
+
+    Best effort on purpose: if the relay cannot be reached the TTL still
+    clears the file, and the receiver already has what they came for.
+    """
+    host = BY_LETTER.get(letter)
+    if host is None:
+        return
+    try:
+        host.after_download(file_id)
+    except (OSError, BeamError):
+        pass
 
 
 def download(letter, file_id, dst, progress=None) -> None:

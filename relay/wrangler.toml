@@ -1,0 +1,30 @@
+name = "beam-relay"
+main = "src/worker.js"
+compatibility_date = "2026-09-22"
+
+# The bucket the encrypted zips land in. Create it first:
+#     npx wrangler r2 bucket create beam-relay
+[[r2_buckets]]
+binding = "BEAM"
+bucket_name = "beam-relay"
+
+[vars]
+# How long a code works for. The Redis record carries this TTL, and when it
+# expires the code is dead - so this is the number your users actually feel.
+TTL_SECONDS = "18000"       # 5 hours
+
+# Biggest zip this relay will take. Bytes are streamed to R2, so raising this
+# is safe for memory, but MAX_BODY_BYTES x MAX_LIVE is your worst-case R2 bill.
+MAX_BODY_BYTES = "10485760" # 10 MB
+
+# Transfers in flight at once. With the two above: 500 x 10 MB = 5 GB worst
+# case, inside R2's 10 GB free tier.
+MAX_LIVE = "500"
+
+# Uploads allowed per IP per hour. This endpoint is public the moment beam
+# ships with your URL in it, so keep it tight.
+RATE_PER_HOUR = "20"
+
+# Secrets, set once and never committed:
+#     npx wrangler secret put UPSTASH_REDIS_REST_URL
+#     npx wrangler secret put UPSTASH_REDIS_REST_TOKEN

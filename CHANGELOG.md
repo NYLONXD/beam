@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A relay of your own, in `relay/`: a Cloudflare Worker that keeps the
+  encrypted zip in R2 and its expiry in Upstash Redis, so beam stops depending
+  on whichever free file host is up. Set `BEAM_RELAY` (or bake the URL into
+  `BeamRelay.DEFAULT_URL`) and it is tried before the public hosts, falling
+  back to them when it is unreachable. Codes from a relay start with `w`.
+- Relay transfers are burned as soon as the receiver confirms the zip decrypted
+  intact, rather than waiting for the TTL. The confirmation fires only after
+  the AES-GCM tag verifies, so a half-finished download can never destroy the
+  only copy.
 - A `beam` command, so neither side has to write Python. `beam send <folder>`
   uploads a project and prints a code; `beam receive <code>` on the other
   laptop downloads it and unzips it, from any network, hours or days later.

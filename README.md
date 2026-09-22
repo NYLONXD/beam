@@ -93,6 +93,31 @@ round trip rather than your whole upload.
 These are free public services with no promises attached. If they are all
 unreachable, `beam pack` makes the zip and you share it another way.
 
+## Your own relay
+
+Depending on strangers' servers is the weak point above. `relay/` is a small
+Cloudflare Worker you can deploy to your own account in about five minutes; it
+keeps the encrypted zip in R2 and its expiry in Upstash Redis.
+
+```bash
+export BEAM_RELAY=https://beam-relay.<your-subdomain>.workers.dev
+beam send D:/projects/my_app        # goes to your relay, not to x0.at
+```
+
+Compared with the public hosts it is:
+
+- **yours** — nobody else's uptime, rules or country blocks
+- **short-lived on purpose** — a TTL you set, 5 hours by default, to the second
+- **burn-after-read** — deleted the moment the receiver confirms the zip
+  decrypted intact, rather than sitting there until it expires
+
+beam tries your relay first and falls through to the public hosts when it is
+unreachable, so a relay that is down slows things rather than breaking them.
+Codes from a relay start with `w`, and the receiver needs `BEAM_RELAY` set too
+unless you bake the URL into your own build.
+
+Setup, settings and the rate limits are in [`relay/README.md`](relay/README.md).
+
 ## Same network? Skip the upload
 
 When both laptops are on one local network and both are on right now, `--lan`
@@ -250,6 +275,9 @@ Errors raise `beam.BeamError`. The command prints them and exits with `1`.
 Use `python -m beam ...` instead, or add the folder pip named when it installed
 the package.
 
+**`this code came from a beam relay, but no relay is set here`**: the sender
+used their own relay. Set `BEAM_RELAY` to the same URL they used.
+
 **`upload failed on every host`**: every host was down, blocked, or too small
 for the file. The message lists what each one said. Some of these hosts are
 blocked in some countries and on some office networks — a different connection
@@ -275,9 +303,10 @@ Codes are case-sensitive.
 
 ## Limits
 
-- The upload depends on free third-party hosts. They can change their rules, go
-  offline or block your country without notice; beam tries four of them, but it
-  cannot promise any is up. This is the honest weak point of the default mode.
+- Without a relay of your own, the upload depends on free third-party hosts.
+  They can change their rules, go offline or block your country without notice;
+  beam tries four of them, but it cannot promise any is up. Deploying
+  [`relay/`](relay/README.md) is the fix.
 - Files over 4 GB, or over 225 MB when temp.sh is down, have to go by `--lan`.
 - `--lan` needs both laptops on at the same time, on the same local network.
 - `start.bat` is for Windows. On macOS or Linux, unzip the file and install
@@ -290,6 +319,8 @@ pip install -e ".[dev]"
 pytest
 ruff check .
 python -m build
+
+cd relay && npm test        # the Worker; needs node, no account or network
 ```
 
 ## License
