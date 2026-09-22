@@ -24,7 +24,7 @@ The same from Python:
 The zip carries a start.bat that installs what the project needs and runs it.
 """
 
-__version__ = "0.1.0"  # before the imports: _cloud reads it for its User-Agent
+__version__ = "0.3.0"  # before the imports: _cloud reads it for its User-Agent
 
 from ._files import DEFAULT_EXCLUDES  # noqa: E402
 from ._protocol import DEFAULT_PORT, BeamError, find_sender, lan_ip  # noqa: E402

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - A relay of your own, in `relay/`: a Cloudflare Worker that keeps the
   encrypted zip in R2 and its expiry in Upstash Redis, so beam stops depending
