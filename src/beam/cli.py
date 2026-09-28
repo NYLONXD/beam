@@ -131,6 +131,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--wait", type=float, default=15.0, metavar="SECONDS",
         help="--lan codes only: how long to search for the sender (default 15)",
     )
+    running = recv_p.add_mutually_exclusive_group()
+    running.add_argument(
+        "--run", action="store_true",
+        help="run start.bat (start.sh on macOS/Linux) straight away, without asking",
+    )
+    running.add_argument(
+        "--no-run", action="store_true",
+        help="do not offer to run start.bat after unzipping",
+    )
     recv_p.add_argument("-q", "--quiet", action="store_true", help="print nothing")
     recv_p.set_defaults(func=_do_receive)
 
@@ -186,7 +195,29 @@ def _do_send(args) -> int:
     return 0
 
 
+def _interactive() -> bool:
+    """Someone is at the keyboard to answer a question."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _ask_to_run(script: str) -> bool:
+    try:
+        answer = input(f"\n  Run {script} now to set it up and start it? [Y/n] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("", "y", "yes")
+
+
 def _do_receive(args) -> int:
+    if args.run and args.no_extract:
+        raise BeamError("--run needs the zip unzipped, so it cannot go with "
+                        "--no-extract")
+    if args.run:
+        run = True
+    elif args.no_run or args.quiet or not _interactive():
+        run = False  # nobody there to answer, so do not ask
+    else:
+        run = _ask_to_run
     receive(
         args.code,
         out=args.out,
@@ -195,6 +226,7 @@ def _do_receive(args) -> int:
         overwrite=args.overwrite,
         wait=args.wait,
         quiet=args.quiet,
+        run=run,
     )
     return 0
 

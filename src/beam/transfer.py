@@ -14,9 +14,12 @@ import hashlib
 import os
 import secrets
 import shutil
+import signal
 import socket
 import string
+import subprocess
 import tempfile
+import threading
 import zipfile
 from pathlib import Path
 
@@ -276,6 +279,7 @@ def receive(
     wait: float = 15.0,
     quiet: bool = False,
     discovery_port: int = DISCOVERY_PORT,
+    run=False,
 ) -> Path:
     """Receive what the other laptop sent with ``beam.send``.
 
@@ -285,6 +289,10 @@ def receive(
     overwrite replace an existing file/folder instead of adding " (1)"
     host, port, wait   LAN only: the sender's IP or "IP:port" to skip
               searching the network, and how many seconds to search
+    run       with extract: run start.bat (start.sh on macOS and Linux) once
+              it is unzipped, which sets the project up and starts it. It
+              can also be a function that is given the script's name and
+              says whether to run it - ``beam receive`` asks the person.
     Returns the path of the saved zip (or the extracted folder).
     """
     code = "".join(str(code).split())  # tolerate spaces/newlines from pasting
@@ -307,10 +315,42 @@ def receive(
             folder = _free_path(folder)
         _safe_unzip(target, folder)
         _say(quiet, f"  unzipped into {folder}")
-        if (folder / "start.bat").exists():
-            _say(quiet, "  double-click start.bat there to set it up and run it")
+        script = START_SCRIPT
+        if (folder / script).exists():
+            if run(script) if callable(run) else run:
+                _say(quiet, f"\n  running {script} ...\n")
+                run_start_script(folder)
+            elif script == "start.bat":
+                _say(quiet, "  double-click start.bat there to set it up and run it")
+            else:
+                _say(quiet, "  run  bash start.sh  there to set it up and run it")
         return folder
     return target
+
+
+START_SCRIPT = "start.bat" if os.name == "nt" else "start.sh"
+
+
+def run_start_script(folder: Path, stdin=None) -> int:
+    """Run the project's start.bat (start.sh on macOS and Linux) and wait.
+
+    Ctrl+C belongs to the project while it runs: the script stops its
+    programs and asks what it needs to ask, and beam just waits for it.
+    """
+    folder = Path(folder)
+    if os.name == "nt":
+        # .\ because cmd may be told not to look in the current folder
+        command = ["cmd", "/c", ".\\start.bat"]
+    else:
+        # bash, not ./start.sh: it runs even if the file lost its x bit
+        command = [shutil.which("bash") or "sh", "start.sh"]
+    in_main = threading.current_thread() is threading.main_thread()
+    previous = signal.signal(signal.SIGINT, lambda *_: None) if in_main else None
+    try:
+        return subprocess.call(command, cwd=folder, stdin=stdin)
+    finally:
+        if in_main:
+            signal.signal(signal.SIGINT, previous)
 
 
 def _receive_online(code, out_dir: Path, overwrite, quiet) -> Path:
