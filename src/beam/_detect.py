@@ -1032,7 +1032,7 @@ def _plain_java(tree: Tree, folder: str) -> App:
         tools=[java_tool(25)], run_bat=run_bat, run_sh=run_sh,
         note="" if chosen else "Several classes have a main(); start the one you "
         "want with: java File.java",
-        family="java",
+        absorbs=frozenset({"java"}), family="java",
     )
 
 
@@ -1463,15 +1463,104 @@ def app_in(tree: Tree, folder: str, own, requirements=None) -> App | None:
 # --- the whole project -------------------------------------------------------
 
 
+# Folders never searched for apps: their package.json or main.py is an
+# example or a test fixture, not something to start.
+NOT_APPS = frozenset({
+    "doc", "docs", "example", "examples", "sample", "samples", "test", "tests",
+    "__tests__", "fixtures", "e2e", "benchmark", "benchmarks",
+})
+MAX_DEPTH = 2  # backend/, apps/web/ - deep enough for monorepos, no deeper
+
+
+def _search_folders(tree: Tree) -> list:
+    out = []
+    for folder in tree.children:
+        parts = folder.split("/") if folder else []
+        if len(parts) > MAX_DEPTH or any(
+            p.startswith(".") or p.lower() in NOT_APPS for p in parts
+        ):
+            continue
+        out.append(folder)
+    return sorted(out, key=lambda f: (f.count("/") + bool(f), f))
+
+
+def _owned(tree: Tree, folder: str, kinds) -> frozenset:
+    """Kinds of project below ``folder`` that are part of it, not apps of
+    their own: a Cargo workspace's members, Maven modules, everything in a
+    Unity project. Node packages only belong to a workspace root."""
+    if kinds[0] in ("unity", "unreal", "godot"):
+        return frozenset({ANY})
+    owned = set(kinds)
+    if "node" in kinds:
+        pkg = _json(tree.read(folder, "package.json"))
+        if not (pkg.get("workspaces") or tree.is_file(folder, "pnpm-workspace.yaml")):
+            owned.discard("node")
+        if tree.is_file(folder, "src-tauri/Cargo.toml"):
+            owned.add("rust")  # Tauri: the Rust half is started by `tauri dev`
+    return frozenset(owned)
+
+
+def _is_ancestor(parent: str, child: str) -> bool:
+    return parent != child and (parent == "" or child.startswith(parent + "/"))
+
+
 def find_apps(files, main: str | None = None, requirements=None) -> list:
-    """What to set up and start. ``files`` is walk() output."""
+    """What to set up and start, back ends first. ``files`` is walk() output.
+
+    Apps are looked for in the project folder and two levels below it, so a
+    backend/ and a frontend/ are both found and both started.
+    """
     tree = Tree(files)
     if main is not None:
         return [_main_app(tree, main, requirements)]
-    app = app_in(tree, "", tree.under(""), requirements)
-    if app is None and any(k.endswith((".py", ".ipynb")) for k in tree.paths):
-        app = _python(tree, "", tree.under(""), requirements=requirements)
-    return [app] if app else []
+
+    roots = []  # (folder, kinds, owned)
+    for folder in _search_folders(tree):
+        kinds = families(tree, folder)
+        if not kinds:
+            continue
+        above = [r for r in roots if _is_ancestor(r[0], folder)]
+        if any(ANY in owned or kinds[0] in owned for _, _, owned in above):
+            continue
+        if kinds == ["static"] and above:
+            continue  # a template's index.html, not a website of its own
+        if folder == "src" and kinds[0] == "python" and not roots:
+            folder = ""  # src/main.py: the project itself, as it always was
+        roots.append((folder, kinds, _owned(tree, folder, kinds)))
+
+    if not roots and any(k.endswith((".py", ".ipynb")) for k in tree.paths):
+        roots.append(("", ["python"], frozenset({"python"})))
+
+    apps = []
+    for folder, kinds, _ in roots:
+        inner = [f for f, _, _ in roots if _is_ancestor(folder, f)]
+        own = [k for k in tree.under(folder)
+               if not any(k.startswith(f + "/") for f in inner)]
+        wants_reqs = "python" in kinds and not any(a.family == "python" for a in apps)
+        app = app_in(tree, folder, own, requirements if wants_reqs else None)
+        if app is None:  # the loose .py fallback
+            app = _python(tree, folder, own, requirements=requirements)
+        apps.append(app)
+
+    _started_by_parent(tree, apps)
+    return sorted(apps, key=lambda a: (a.frontend, a.folder))
+
+
+def _started_by_parent(tree: Tree, apps) -> None:
+    """A root package.json whose dev script starts frontend/ as well (with
+    concurrently, or cd frontend && ...) - then frontend/ is only installed,
+    or it would be started twice."""
+    for parent in apps:
+        if parent.family != "node" or not parent.run_bat:
+            continue
+        scripts = json.dumps(_dict(_json(tree.read(parent.folder, "package.json"))
+                                   .get("scripts")))
+        for child in apps:
+            name = child.folder.rsplit("/", 1)[-1]
+            if (child.family == "node" and _is_ancestor(parent.folder, child.folder)
+                    and re.search(rf"\b{re.escape(name)}\b", scripts)):
+                child.run_bat = child.run_sh = None
+                child.what, child.note = "", ""
 
 
 def _main_app(tree: Tree, main: str, requirements=None) -> App:
