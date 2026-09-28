@@ -1,4 +1,4 @@
-"""Zipping a project folder, with a start.bat that sets it up and runs it."""
+"""Zipping a project folder, with start.bat / start.sh that set it up and run it."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 from . import _stacks
+from ._detect import find_apps
 from ._files import (
     DEFAULT_EXCLUDES,
     human,
@@ -15,7 +16,7 @@ from ._files import (
     walk,
 )
 from ._protocol import BeamError
-from ._starter import detect, start_bat
+from ._starter import start_bat, start_sh
 
 
 def _say(quiet, *args, end="\n"):
@@ -74,14 +75,16 @@ def pack(
         raise BeamError(f"nothing to pack in {root} after applying excludes")
 
     extras = {}
-    info = None
+    apps = []
     if start_script:
-        info = detect(files, main=main, requirements=requirements)
-        if info["kind"] is not None:
-            extras["start.bat"] = start_bat(root.name, info)
-            if info["requirements"]:  # given, or guessed for lack of a file
-                extras["requirements.txt"] = "\n".join(info["requirements"]) + "\n"
-        files = [f for f in files if f[1].as_posix() not in extras]
+        apps = find_apps(files, main=main, requirements=requirements)
+        if apps:
+            extras["start.bat"] = start_bat(root.name, apps)
+            extras["start.sh"] = start_sh(root.name, apps)
+            for app in apps:  # requirements.txt worked out for a Python app
+                for name, text in app.files.items():
+                    extras[f"{app.folder}/{name}" if app.folder else name] = text
+    files = [f for f in files if f[1].as_posix() not in extras]
 
     total = sum(size for _, _, size in files)
     _say(quiet, f"  packing  : {root.name}  ({len(files)} files, {human(total)})")
@@ -93,14 +96,8 @@ def pack(
     if secrets:
         _say(quiet, f"  included : {', '.join(secrets)}  (secrets: share this "
                     "only with the person it is for)")
-    if info is not None:
-        if info["kind"] is None:
-            _say(quiet, "  start.bat: not added (no Python, Node or HTML files found)")
-        else:
-            what = info["entry"] or "setup only, no main script found"
-            _say(quiet, f"  start.bat: {info['kind']} -> {what}")
-        if "requirements.txt" in extras:
-            _say(quiet, f"  requires : {', '.join(info['requirements'])}")
+    if start_script:
+        _describe(apps, quiet)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".part")
@@ -143,6 +140,24 @@ def _report_left_out(root: Path, left_out, has_start_script: bool, shown: int = 
         rest = sum(size for _, size, _ in sizes[shown:])
         print(f"{label} and {len(sizes) - shown} more ({human(rest)})")
     if has_start_script:
-        print(f"{label} (start.bat puts these back on the other laptop)")
+        print(f"{label} (start.bat / start.sh put these back on the other laptop)")
     else:
         print(f"{label} (the other laptop has to install these again)")
+
+
+def _describe(apps, quiet: bool) -> None:
+    """What start.bat will do, one line per app."""
+    if not apps:
+        _say(quiet, "  start    : no start.bat (nothing beam knows how to set up)")
+        return
+    width = max(len(app.folder) for app in apps)
+    label = "  start    :"
+    for app in apps:
+        where = f"{app.folder or '.':<{width}}  " if width else ""
+        how = app.what or ("set up only" if app.setup_bat else "open it in its editor")
+        _say(quiet, f"{label} {where}{app.stack} -> {how}")
+        label = " " * len(label)
+    for app in apps:
+        if app.requires:
+            where = f"{app.folder}: " if app.folder else ""
+            _say(quiet, f"  requires : {where}{', '.join(app.requires)}")

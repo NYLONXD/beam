@@ -63,7 +63,7 @@ def test_pack_adds_start_bat_and_guessed_requirements(tmp_path):
     assert out.name == "bundle.zip"
     bat = read_in(out, "start.bat")
     assert "\r\n" in bat and "\n" not in bat.replace("\r\n", "")
-    assert '"%VPY%" "main.py"' in bat
+    assert r'.venv\Scripts\python.exe "main.py"' in bat
     assert "-m venv .venv" in bat
     reqs = read_in(out, "requirements.txt").split()
     assert reqs == ["numpy", "opencv-python", "Pillow"]  # not os, not src
@@ -80,7 +80,7 @@ def test_main_and_requirements_can_be_given(tmp_path):
     project = make_project(tmp_path / "app")
     (project / "src" / "server.py").write_text("print('hi')\n")
     out = beam.pack(project, main="src/server.py", requirements=["flask"], quiet=True)
-    assert '"%VPY%" "src\\server.py"' in read_in(out, "start.bat")
+    assert r'.venv\Scripts\python.exe "src\server.py"' in read_in(out, "start.bat")
     assert read_in(out, "requirements.txt") == "flask\n"
 
 
@@ -98,7 +98,7 @@ def test_streamlit_node_and_static_projects(tmp_path):
 
     node = tmp_path / "web"
     node.mkdir()
-    (node / "package.json").write_text("{}")
+    (node / "package.json").write_text('{"scripts": {"start": "node index.js"}}')
     bat = read_in(beam.pack(node, quiet=True), "start.bat")
     assert "npm install" in bat and "npm start" in bat
 
