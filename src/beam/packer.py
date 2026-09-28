@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import zipfile
 from pathlib import Path
 
@@ -107,13 +108,20 @@ def pack(
             tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=compresslevel
         ) as zf:
             for abs_path, rel, size in files:
-                zf.write(abs_path, rel.as_posix())
+                if _is_shell_script(rel.name):
+                    _write_script(zf, rel.as_posix(), abs_path.read_bytes(),
+                                  abs_path.stat().st_mtime)
+                else:
+                    zf.write(abs_path, rel.as_posix())
                 done += size
                 if not quiet and total:
                     pct = 100 * done / total
                     print(f"\r  {pct:5.1f}%  {str(rel)[:56]:<56}", end="", flush=True)
             for name, text in extras.items():
-                zf.writestr(name, text)
+                if name == "start.sh":
+                    _write_script(zf, name, text.encode(), time.time())
+                else:
+                    zf.writestr(name, text)
         tmp.replace(out)
     except BaseException:
         tmp.unlink(missing_ok=True)
@@ -161,3 +169,21 @@ def _describe(apps, quiet: bool) -> None:
         if app.requires:
             where = f"{app.folder}: " if app.folder else ""
             _say(quiet, f"  requires : {where}{', '.join(app.requires)}")
+
+
+def _is_shell_script(name: str) -> bool:
+    return name in ("gradlew", "mvnw") or name.endswith(".sh")
+
+
+def _write_script(zf: zipfile.ZipFile, name: str, data: bytes, mtime: float) -> None:
+    """A shell script, marked executable and with Unix line endings.
+
+    Sent from Windows, gradlew and friends lose their executable bit and
+    often gain CRLF line endings from git, and then refuse to run on a Mac.
+    The mode is recorded the Unix way, so unzip tools and beam restore it.
+    """
+    info = zipfile.ZipInfo(name, date_time=time.localtime(mtime)[:6])
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.create_system = 3  # Unix: tells unzip tools to read the mode below
+    info.external_attr = 0o100755 << 16
+    zf.writestr(info, data.replace(b"\r\n", b"\n"))

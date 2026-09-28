@@ -11,6 +11,7 @@ dash, which is how ``receive`` tells the two apart.
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 import shutil
 import socket
@@ -409,3 +410,16 @@ def _safe_unzip(zip_path: Path, dest: Path) -> None:
             if target != root and root not in target.parents:
                 raise BeamError(f"unsafe path in zip: {member.filename!r}")
         zf.extractall(root)
+        if os.name != "nt":
+            _restore_run_permission(zf, root)
+
+
+def _restore_run_permission(zf: zipfile.ZipFile, root: Path) -> None:
+    """extractall drops the executable bit; put it back where the zip has it."""
+    for member in zf.infolist():
+        mode = member.external_attr >> 16
+        if member.create_system != 3 or not mode & 0o111 or member.is_dir():
+            continue
+        path = root / member.filename
+        if path.is_file() and not path.is_symlink():
+            path.chmod(path.stat().st_mode | (mode & 0o111))
