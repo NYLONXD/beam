@@ -71,6 +71,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-size-mb", type=float, metavar="MB",
         help="leave out files bigger than this",
     )
+    send_p.add_argument(
+        "--with-deps", action="store_true",
+        help="keep dependency folders such as node_modules, for a receiver with "
+        "no internet (by default they are left out and start.bat puts them back)",
+    )
     how = send_p.add_mutually_exclusive_group()
     how.add_argument(
         "--lan", action="store_true",
@@ -153,6 +158,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-size-mb", type=float, metavar="MB",
         help="leave out files bigger than this",
     )
+    pack_p.add_argument(
+        "--with-deps", action="store_true",
+        help="keep dependency folders such as node_modules, for a receiver with "
+        "no internet (by default they are left out and start.bat puts them back)",
+    )
     pack_p.add_argument("-q", "--quiet", action="store_true", help="print nothing")
     pack_p.set_defaults(func=_do_pack)
 
@@ -166,6 +176,7 @@ def _do_send(args) -> int:
         main=args.main,
         start_script=not args.no_start_script,
         max_size_mb=args.max_size_mb,
+        with_deps=args.with_deps,
         lan=args.lan,
         code=args.code,
         port=args.port,
@@ -196,6 +207,7 @@ def _do_pack(args) -> int:
         main=args.main,
         start_script=not args.no_start_script,
         max_size_mb=args.max_size_mb,
+        with_deps=args.with_deps,
         quiet=args.quiet,
     )
     return 0

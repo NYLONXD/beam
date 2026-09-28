@@ -5,13 +5,17 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+import time
 from pathlib import Path
+
+from . import _stacks
 
 HASH_CHUNK = 1 << 20
 
-# Things you almost never want to carry between machines: virtualenvs are
-# platform-specific, caches are regenerable, .git is better cloned, .env
-# usually holds secrets.
+# Things you almost never want to carry between machines: .git is better
+# cloned and caches are regenerable. Dependencies, virtualenvs and build
+# output (node_modules, .venv, ...) are rebuilt on the other laptop by
+# start.bat, so they stay behind too; see _stacks for the full rules.
 DEFAULT_EXCLUDES = [
     ".git",
     ".hg",
@@ -19,19 +23,14 @@ DEFAULT_EXCLUDES = [
     "__pycache__",
     "*.pyc",
     "*.pyo",
-    ".venv",
-    "venv",
-    "env",
-    ".env",
     ".ipynb_checkpoints",
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
-    ".tox",
     "*.egg-info",
-    "node_modules",
     ".DS_Store",
     "Thumbs.db",
+    *_stacks.REINSTALLED,
 ]
 
 
@@ -100,16 +99,48 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def walk(root: Path, patterns, max_bytes=None):
-    """Return ([(abs_path, rel_path, size)], [(rel_path, size)]) - kept, skipped."""
-    found, skipped = [], []
+def walk(root: Path, patterns, max_bytes=None, rules: bool = True,
+         with_deps: bool = False):
+    """Return (kept, skipped, left_out).
+
+    kept      [(abs_path, rel_path, size)]
+    skipped   [(rel_path, size)] - bigger than max_bytes
+    left_out  [rel_path] - folders the other laptop rebuilds or reinstalls:
+              node_modules, venvs, target/ beside a Cargo.toml, ...
+
+    ``rules`` applies the built-in rules in _stacks; ``with_deps`` keeps the
+    dependency folders among them (node_modules, vendor, ...).
+    """
+    found, skipped, left_out = [], [], []
+    deep = set()  # rule paths with a slash, like vendor/bundle, from root
     for dirpath, dirnames, filenames in os.walk(root):
         here = Path(dirpath)
         rel_dir = here.relative_to(root)
-        dirnames[:] = sorted(d for d in dirnames if not excluded(rel_dir / d, patterns))
+        if rules and rel_dir.parts and _stacks.is_rebuilt_folder(
+            here, filenames, dirnames
+        ):
+            left_out.append(rel_dir)
+            dirnames[:] = []
+            continue
+        near = _stacks.beside(here, filenames, dirnames, with_deps) if rules else set()
+        deep.update((rel_dir / p).as_posix().lower() for p in near if "/" in p)
+
+        kept_dirs = []
+        for d in sorted(dirnames):
+            rel = rel_dir / d
+            if excluded(rel, patterns):
+                if d in _stacks.REINSTALLED:
+                    left_out.append(rel)
+                continue
+            if _ruled_out(rel, near, deep):
+                left_out.append(rel)
+                continue
+            kept_dirs.append(d)
+        dirnames[:] = kept_dirs
+
         for name in sorted(filenames):
             rel = rel_dir / name
-            if excluded(rel, patterns):
+            if excluded(rel, patterns) or _ruled_out(rel, near, deep):
                 continue
             abs_path = here / name
             if abs_path.is_symlink() and not abs_path.exists():
@@ -122,4 +153,42 @@ def walk(root: Path, patterns, max_bytes=None):
                 skipped.append((rel, size))
                 continue
             found.append((abs_path, rel, size))
-    return found, skipped
+    return found, skipped, left_out
+
+
+def _ruled_out(rel: Path, near, deep) -> bool:
+    return rel.name.lower() in near or rel.as_posix().lower() in deep
+
+
+def measure(folders, budget: float = 2.0):
+    """[(folder, bytes, complete)], giving up after ``budget`` seconds overall.
+
+    A big node_modules has a lot of files; the size is only for the printout,
+    so it is not worth making anyone wait long for it.
+    """
+    deadline = time.monotonic() + budget
+    out = []
+    for folder in folders:
+        total, complete, todo = 0, True, [str(folder)]
+        while todo:
+            if time.monotonic() > deadline:
+                complete = False
+                break
+            try:
+                with os.scandir(todo.pop()) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_symlink() or getattr(
+                                entry, "is_junction", lambda: False
+                            )():
+                                continue
+                            if entry.is_dir(follow_symlinks=False):
+                                todo.append(entry.path)
+                            else:
+                                total += entry.stat(follow_symlinks=False).st_size
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+        out.append((folder, total, complete))
+    return out

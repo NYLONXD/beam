@@ -5,7 +5,15 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-from ._files import DEFAULT_EXCLUDES, human, normalize_excludes, read_ignore_file, walk
+from . import _stacks
+from ._files import (
+    DEFAULT_EXCLUDES,
+    human,
+    measure,
+    normalize_excludes,
+    read_ignore_file,
+    walk,
+)
 from ._protocol import BeamError
 from ._starter import detect, start_bat
 
@@ -24,6 +32,7 @@ def pack(
     requirements=None,
     use_default_excludes: bool = True,
     max_size_mb: float | None = None,
+    with_deps: bool = False,
     compresslevel: int = 6,
     quiet: bool = False,
 ) -> Path:
@@ -37,6 +46,9 @@ def pack(
     requirements  pip packages for start.bat to install; by default the
                   project's requirements.txt is used, or one is worked out
                   from its imports
+    with_deps   keep dependency folders (node_modules, vendor, ...) for a
+                receiver with no internet; venvs and build output still stay
+                behind, because they do not work when moved
     """
     root = Path(path).expanduser().resolve()
     if not root.is_dir():
@@ -48,11 +60,15 @@ def pack(
     out = out.resolve()
 
     patterns = list(DEFAULT_EXCLUDES) if use_default_excludes else []
+    if with_deps:
+        patterns = [p for p in patterns if p not in _stacks.DEPENDENCY_NAMES]
     patterns += normalize_excludes(exclude)
     patterns += read_ignore_file(root)
 
     max_bytes = int(max_size_mb * 1024 * 1024) if max_size_mb else None
-    files, skipped = walk(root, patterns, max_bytes)
+    files, skipped, left_out = walk(
+        root, patterns, max_bytes, rules=use_default_excludes, with_deps=with_deps
+    )
     files = [f for f in files if f[0].resolve() != out]
     if not files:
         raise BeamError(f"nothing to pack in {root} after applying excludes")
@@ -71,6 +87,12 @@ def pack(
     _say(quiet, f"  packing  : {root.name}  ({len(files)} files, {human(total)})")
     for rel, size in skipped:
         _say(quiet, f"  skipped  : {rel} ({human(size)}, over max_size_mb)")
+    if left_out and not quiet:
+        _report_left_out(root, left_out, bool(extras))
+    secrets = [rel.as_posix() for _, rel, _ in files if _stacks.is_secret(rel.name)]
+    if secrets:
+        _say(quiet, f"  included : {', '.join(secrets)}  (secrets: share this "
+                    "only with the person it is for)")
     if info is not None:
         if info["kind"] is None:
             _say(quiet, "  start.bat: not added (no Python, Node or HTML files found)")
@@ -103,3 +125,24 @@ def pack(
         print("\r" + " " * 66 + "\r", end="", flush=True)
     _say(quiet, f"  created  : {out}  ({human(out.stat().st_size)})")
     return out
+
+
+def _report_left_out(root: Path, left_out, has_start_script: bool, shown: int = 5):
+    """List the biggest folders left behind, so the saving is visible."""
+    sizes = sorted(
+        ((rel, size, done) for (_, size, done), rel in
+         zip(measure([root / rel for rel in left_out]), left_out)),
+        key=lambda item: -item[1],
+    )
+    width = min(max(len(rel.as_posix()) for rel, _, _ in sizes[:shown]), 40)
+    label = "  left out :"
+    for rel, size, done in sizes[:shown]:
+        print(f"{label} {rel.as_posix():<{width}}  {human(size)}{'' if done else '+'}")
+        label = " " * len(label)
+    if len(sizes) > shown:
+        rest = sum(size for _, size, _ in sizes[shown:])
+        print(f"{label} and {len(sizes) - shown} more ({human(rest)})")
+    if has_start_script:
+        print(f"{label} (start.bat puts these back on the other laptop)")
+    else:
+        print(f"{label} (the other laptop has to install these again)")

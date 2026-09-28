@@ -61,6 +61,19 @@ def test_excludes_accept_repeats_and_commas(monkeypatch):
     assert seen["exclude"] == [".mp4", ".log", "data"]
 
 
+def test_with_deps_is_off_unless_asked(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli, "send", lambda path, **kw: seen.update(kw))
+    monkeypatch.setattr(cli, "pack", lambda path, **kw: seen.update(kw))
+
+    run("send", ".")
+    assert seen["with_deps"] is False
+    run("send", ".", "--with-deps")
+    assert seen["with_deps"] is True
+    run("pack", ".", "--with-deps")
+    assert seen["with_deps"] is True
+
+
 def test_receive_unzips_unless_told_not_to(monkeypatch):
     seen = {}
     monkeypatch.setattr(cli, "receive", lambda code, **kw: seen.update(kw, code=code))
