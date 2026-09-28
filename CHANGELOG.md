@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.4.0
+
+- Only the project travels. Dependencies, virtualenvs and build output stay
+  behind, by built-in rules, with no ignore file to write: `node_modules`,
+  `.venv`, `.next`, `.gradle` and friends by name; any virtualenv (by its
+  `pyvenv.cfg`), conda environment, CMake build folder or tagged cache by what
+  is inside; and `target/`, `build/`, `bin/`, `obj/`, `vendor/` only beside the
+  file that proves what they are (`Cargo.toml`, `pom.xml`, a Gradle file, a
+  `.csproj`, `composer.json`, ...). Unity's `Library/`, Unreal's
+  `Intermediate/` and Godot's `.godot/` stay behind too. `beam send` lists
+  what it left out and how big it was. `--with-deps` keeps the dependency
+  folders for a receiver with no internet.
+- `start.bat` now handles almost any project: Python (pip, uv, poetry,
+  pipenv; Django, Flask, FastAPI, Streamlit, notebooks), Node (npm, pnpm,
+  yarn, bun; Tauri), Deno, Rust, Go, Java and Kotlin (Maven, Gradle, plain
+  `.java`), .NET, PHP (Laravel), Ruby (Rails), Elixir (Phoenix), Flutter and
+  Dart, Haskell, Swift and CMake. Game-engine and Android projects get a note
+  on which editor to open them in.
+- A missing language is offered with winget ("Install it now? [Y,N]") and
+  used in the same window straight after. Languages with no winget package
+  get the download link.
+- A `start.sh` for macOS and Linux does the same setup, and says what to
+  install when a language is missing. It stays runnable when sent from
+  Windows: it is marked executable in the zip, `gradlew`, `mvnw` and `*.sh`
+  get Unix line endings, and `beam receive` restores the executable bit.
+- A back end and a front end in one project (`backend/` and `frontend/`,
+  `apps/web/`) are both set up and started, back ends first, each in its own
+  window. Workspaces count as one project.
+- `beam receive` asks "Run start.bat now to set it up and start it? [Y/n]"
+  once it has unzipped. `--run` runs it without asking, `--no-run` never
+  asks, and it does not ask when nobody is at the keyboard.
+  `beam.receive(..., run=True)` does the same from Python.
+- `.env` files now travel with the project (the zip is encrypted), and
+  `beam send` names them. `-x .env` still leaves them out.
+- A folder called `env/` is no longer left out unless it really is a
+  virtualenv.
+- For a Python project with no `requirements.txt`, the list comes from
+  `pyproject.toml` or the `Pipfile` when they have one, before falling back
+  to reading the imports.
+
 ## 0.3.0
 
 - A relay of your own, in `relay/`: a Cloudflare Worker that keeps the

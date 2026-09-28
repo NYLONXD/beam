@@ -15,16 +15,18 @@ The same from Python:
 
     import beam
 
-    code = beam.send("D:/projects/my_app")   # uploads
-    beam.receive(code, extract=True)         # on the other laptop
+    code = beam.send("D:/projects/my_app")         # uploads
+    beam.receive(code, extract=True, run=True)     # on the other laptop
 
     beam.send("D:/projects/my_app", lan=True)   # local network instead
     beam.pack("D:/projects/my_app")             # only make my_app.zip
 
-The zip carries a start.bat that installs what the project needs and runs it.
+Only the project travels: node_modules, virtualenvs, build output and the like
+stay behind, and the zip carries a start.bat (start.sh on macOS and Linux)
+that installs what the project needs and starts it.
 """
 
-__version__ = "0.3.0"  # before the imports: _cloud reads it for its User-Agent
+__version__ = "0.4.0"  # before the imports: _cloud reads it for its User-Agent
 
 from ._files import DEFAULT_EXCLUDES  # noqa: E402
 from ._protocol import DEFAULT_PORT, BeamError, find_sender, lan_ip  # noqa: E402

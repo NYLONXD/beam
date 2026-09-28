@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "beam-lan"
 dynamic = ["version"]
-description = "Zip a project and send it to anyone, anywhere, with a start.bat that sets it up and runs it."
+description = "Send a project to anyone, anywhere, without its node_modules or venv, with start scripts that set it up and run it."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
 authors = [{ name = "Nylonxd", email = "Himanshujha202005@gmail.com" }]
-keywords = ["file-transfer", "share", "zip", "project", "encrypted", "lan", "start.bat"]
+keywords = ["file-transfer", "share", "zip", "project", "encrypted", "lan", "start.bat", "start.sh", "dependencies"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

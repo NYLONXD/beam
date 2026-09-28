@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     send_p.add_argument(
         "--no-start-script", action="store_true",
-        help="do not add start.bat / requirements.txt to the zip",
+        help="do not add start.bat, start.sh or requirements.txt to the zip",
     )
     send_p.add_argument(
         "--max-size-mb", type=float, metavar="MB",
@@ -147,7 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     pack_p = subs.add_parser(
         "pack",
         help="only make the zip",
-        description="Zip a folder (with its start.bat) and stop there.",
+        description="Zip a folder (with its start scripts) and stop there.",
     )
     pack_p.add_argument("path", help="the project folder")
     pack_p.add_argument(
@@ -161,7 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
     pack_p.add_argument("--main", metavar="SCRIPT", help="script start.bat should run")
     pack_p.add_argument(
         "--no-start-script", action="store_true",
-        help="do not add start.bat / requirements.txt to the zip",
+        help="do not add start.bat, start.sh or requirements.txt to the zip",
     )
     pack_p.add_argument(
         "--max-size-mb", type=float, metavar="MB",
